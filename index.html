@@ -190,8 +190,15 @@
         <input type="checkbox" id="aftertax-check"> 세후 금액으로 표시 (국내 15.4% / 해외 15% 원천징수 가정)
       </label>
     </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field" style="min-width:320px">
+        <label>백엔드 서버 URL (선택 — 더 안정적인 자동조회)</label>
+        <input type="text" id="backend-input" placeholder="예: https://your-worker.your-name.workers.dev" style="width:100%">
+      </div>
+      <span class="empty-note" id="backend-status" style="align-self:center"></span>
+    </div>
     <div class="status" id="global-status"></div>
-    <p class="empty-note" style="margin:10px 0 0">종목 추가 카드의 검색창에 회사명/티커를 입력하면 Yahoo Finance 검색 엔드포인트로 국내·해외 종목을 함께 찾아주고, 선택하는 즉시 시세·PER·PBR·주당배당금을 조회해 자동으로 취합·입력합니다. 재무지표는 국내는 Naver Finance(PER·PBR·주당배당금), 해외는 Yahoo Finance(PER·PBR·배당성향·부채비율·가능한 경우 총자산)에서 가져옵니다. 국내 종목의 배당성향·부채비율·총자산은 무료 자동조회 소스가 없어 직접 입력이 필요합니다. 브라우저 정책이나 API 상태에 따라 조회가 실패할 수 있으며, 그런 경우 검색 대신 필드에 직접 입력하면 됩니다.</p>
+    <p class="empty-note" style="margin:10px 0 0">종목 추가 카드의 검색창에 회사명/티커를 입력하면 국내·해외 종목을 함께 찾아주고, 선택하는 즉시 시세·PER·PBR·주당배당금을 조회해 자동으로 취합·입력합니다. 기본값은 브라우저에서 Yahoo Finance/Naver Finance 공개 엔드포인트를 직접 호출하는 방식(무료, 서버 없음)이라 브라우저 정책에 따라 가끔 조회가 실패할 수 있습니다. 위 "백엔드 서버 URL"에 직접 배포한 Cloudflare Worker 주소를 입력하면 같은 무료 엔드포인트를 서버에서 대신 호출해 CORS 문제 없이 더 안정적으로 자동조회됩니다(배포 방법은 README 참고). 국내 종목의 배당성향·부채비율·총자산은 어느 경우든 무료 자동조회 소스가 없어 직접 입력이 필요합니다.</p>
   </div>
 
   <div class="card">
@@ -302,6 +309,7 @@ const LS_KEY = 'dj_dividend_portfolio_v1';
 const LS_FX_KEY = 'dj_dividend_fx_v1';
 const LS_AFTERTAX_KEY = 'dj_dividend_aftertax_v1';
 const LS_AUTOREFRESH_KEY = 'dj_dividend_autorefresh_v1';
+const LS_BACKEND_KEY = 'dj_dividend_backend_v1';
 
 let holdings = loadHoldings();
 let fxRate = loadFx();
@@ -336,6 +344,16 @@ function loadFx() {
 function saveFx() { try { localStorage.setItem(LS_FX_KEY, String(fxRate)); } catch (e) {} }
 function loadAfterTax() { try { return localStorage.getItem(LS_AFTERTAX_KEY) === '1'; } catch (e) { return false; } }
 function saveAfterTax() { try { localStorage.setItem(LS_AFTERTAX_KEY, afterTax ? '1' : '0'); } catch (e) {} }
+function backendUrl() {
+  try {
+    const v = (localStorage.getItem(LS_BACKEND_KEY) || '').trim();
+    return v ? v.replace(/\/+$/, '') : null;
+  } catch (e) { return null; }
+}
+function saveBackendUrl(v) { try { localStorage.setItem(LS_BACKEND_KEY, (v || '').trim()); } catch (e) {} }
+function backendQuery(h) {
+  return 'market=' + h.market + '&ticker=' + encodeURIComponent(h.ticker.trim()) + (h.market === 'KR' ? '&exchange=' + (h.exchange || 'KS') : '');
+}
 
 function newHolding(partial) {
   return Object.assign({
@@ -401,6 +419,14 @@ function yahooSymbol(h) {
 }
 
 async function fetchYahooPrice(h) {
+  const base = backendUrl();
+  if (base) {
+    const res = await fetch(base + '/price?' + backendQuery(h));
+    if (!res.ok) throw new Error('백엔드 HTTP ' + res.status);
+    const data = await res.json();
+    if (typeof data.price !== 'number') throw new Error(data.error || '가격 정보 없음');
+    return data.price;
+  }
   const sym = yahooSymbol(h);
   const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '?interval=1d&range=1d';
   const res = await fetch(url);
@@ -471,14 +497,36 @@ function applyFundamentals(h, data) {
 }
 
 async function fetchFundamentals(h) {
+  const base = backendUrl();
+  if (base) {
+    const res = await fetch(base + '/fundamentals?' + backendQuery(h));
+    if (!res.ok) throw new Error('백엔드 HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (typeof data.totalAssets === 'number') data.totalAssets = compactUSD(data.totalAssets);
+    return data;
+  }
   return h.market === 'KR' ? fetchNaverFundamentals(h) : fetchYahooFundamentals(h);
+}
+
+// 시세+재무지표를 백엔드에서 한 번에 취합해서 받아온다 (왕복 1회)
+async function fetchQuoteBackend(h) {
+  const base = backendUrl();
+  const res = await fetch(base + '/quote?' + backendQuery(h));
+  if (!res.ok) throw new Error('백엔드 HTTP ' + res.status);
+  const data = await res.json();
+  if (typeof data.totalAssets === 'number') data.totalAssets = compactUSD(data.totalAssets);
+  return data;
 }
 
 // 종목 검색: Yahoo Finance 공개 검색 엔드포인트 (국내·해외 종목을 한 번에 검색)
 async function searchSymbols(q) {
-  const url = 'https://query1.finance.yahoo.com/v1/finance/search?q=' + encodeURIComponent(q) + '&quotesCount=8&newsCount=0';
+  const base = backendUrl();
+  const url = base
+    ? base + '/search?q=' + encodeURIComponent(q)
+    : 'https://query1.finance.yahoo.com/v1/finance/search?q=' + encodeURIComponent(q) + '&quotesCount=8&newsCount=0';
   const res = await fetch(url);
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.ok) throw new Error((base ? '백엔드 HTTP ' : 'HTTP ') + res.status);
   const data = await res.json();
   const quotes = (data && data.quotes) || [];
   return quotes
@@ -490,7 +538,7 @@ async function searchSymbols(q) {
       else if (symbol.endsWith('.KQ')) { market = 'KR'; exchange = 'KQ'; ticker = symbol.slice(0, -3); }
       return {
         symbol, market, exchange, ticker,
-        name: q.shortname || q.longname || symbol,
+        name: q.shortname || q.name || q.longname || symbol,
         typeDisp: q.typeDisp || '', exchDisp: q.exchDisp || ''
       };
     });
@@ -499,6 +547,21 @@ async function searchSymbols(q) {
 async function refreshOneFull(id) {
   const h = holdings.find(x => x.id === id);
   if (!h || !h.ticker) return;
+  if (backendUrl()) {
+    try {
+      const data = await fetchQuoteBackend(h);
+      if (typeof data.price === 'number') { h.price = data.price; h.priceUpdatedAt = new Date().toISOString(); h.priceSource = 'auto'; h.priceError = null; }
+      else h.priceError = '자동조회 실패 (직접 입력)';
+      applyFundamentals(h, data);
+      h.fundUpdatedAt = new Date().toISOString();
+      h.fundError = data.fundError ? '재무지표 자동조회 실패 (직접 입력)' : null;
+    } catch (e) {
+      h.priceError = '백엔드 조회 실패'; h.fundError = '백엔드 조회 실패';
+    }
+    saveHoldings();
+    render();
+    return;
+  }
   try {
     const p = await fetchYahooPrice(h);
     h.price = p; h.priceUpdatedAt = new Date().toISOString(); h.priceSource = 'auto'; h.priceError = null;
@@ -537,8 +600,23 @@ async function refreshAllPrices() {
 async function refreshAllFull() {
   if (holdings.length === 0) return;
   setGlobalStatus('전체 시세·재무지표 조회 중...', false);
+  const base = backendUrl();
   for (const h of holdings) {
     if (!h.ticker) continue;
+    if (base) {
+      try {
+        const data = await fetchQuoteBackend(h);
+        if (typeof data.price === 'number') { h.price = data.price; h.priceUpdatedAt = new Date().toISOString(); h.priceSource = 'auto'; h.priceError = null; }
+        else h.priceError = '자동조회 실패';
+        applyFundamentals(h, data);
+        h.fundUpdatedAt = new Date().toISOString();
+        h.fundError = data.fundError ? '자동조회 실패' : null;
+      } catch (e) {
+        h.priceError = '백엔드 조회 실패'; h.fundError = '백엔드 조회 실패';
+      }
+      await new Promise(r => setTimeout(r, 100));
+      continue;
+    }
     try {
       const p = await fetchYahooPrice(h);
       h.price = p; h.priceUpdatedAt = new Date().toISOString(); h.priceSource = 'auto'; h.priceError = null;
@@ -565,10 +643,12 @@ async function refreshFx() {
   btn.disabled = true;
   setGlobalStatus('환율 조회 중...', false);
   try {
-    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=KRW');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const base = backendUrl();
+    const url = base ? base + '/fx' : 'https://api.frankfurter.app/latest?from=USD&to=KRW';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error((base ? '백엔드 HTTP ' : 'HTTP ') + res.status);
     const data = await res.json();
-    const rate = data && data.rates && data.rates.KRW;
+    const rate = base ? data.rate : (data && data.rates && data.rates.KRW);
     if (typeof rate !== 'number') throw new Error('환율 없음');
     fxRate = rate;
     saveFx();
@@ -957,19 +1037,29 @@ async function previewAndFill() {
   const currency = market === 'US' ? 'USD' : 'KRW';
   setPreviewStatus('시세·재무지표 조회 중...', false);
   let priceStr = '조회 실패', perStr = '—', pbrStr = '—', dpsFilled = false;
-  try {
-    const p = await fetchYahooPrice(tmp);
-    priceStr = fmtMoney(p, currency);
-  } catch (e) {}
-  try {
-    const data = await fetchFundamentals(tmp);
-    if (data.per != null) perStr = data.per.toFixed(2);
-    if (data.pbr != null) pbrStr = data.pbr.toFixed(2);
-    if (data.dps != null) {
-      document.getElementById('add-dps').value = data.dps;
-      dpsFilled = true;
-    }
-  } catch (e) {}
+  if (backendUrl()) {
+    try {
+      const data = await fetchQuoteBackend(tmp);
+      if (typeof data.price === 'number') priceStr = fmtMoney(data.price, currency);
+      if (data.per != null) perStr = data.per.toFixed(2);
+      if (data.pbr != null) pbrStr = data.pbr.toFixed(2);
+      if (data.dps != null) { document.getElementById('add-dps').value = data.dps; dpsFilled = true; }
+    } catch (e) {}
+  } else {
+    try {
+      const p = await fetchYahooPrice(tmp);
+      priceStr = fmtMoney(p, currency);
+    } catch (e) {}
+    try {
+      const data = await fetchFundamentals(tmp);
+      if (data.per != null) perStr = data.per.toFixed(2);
+      if (data.pbr != null) pbrStr = data.pbr.toFixed(2);
+      if (data.dps != null) {
+        document.getElementById('add-dps').value = data.dps;
+        dpsFilled = true;
+      }
+    } catch (e) {}
+  }
   setPreviewStatus('조회 결과 — 현재가 ' + priceStr + ' · PER ' + perStr + ' · PBR ' + pbrStr + (dpsFilled ? ' · 주당배당금 자동 입력됨(추가 시 확인)' : ' · 주당배당금은 직접 입력 필요'), false);
 }
 
@@ -1095,8 +1185,19 @@ document.getElementById('auto-refresh-select').addEventListener('change', (e) =>
   if (secs > 0) autoRefreshTimer = setInterval(refreshAllPrices, secs * 1000);
 });
 
+function updateBackendStatus() {
+  const el = document.getElementById('backend-status');
+  el.textContent = backendUrl() ? '✓ 백엔드 사용 중' : '미설정 - 브라우저에서 직접 조회';
+}
+document.getElementById('backend-input').addEventListener('change', (e) => {
+  saveBackendUrl(e.target.value);
+  updateBackendStatus();
+});
+
 /* ---------- init ---------- */
 document.getElementById('fx-input').value = fxRate.toFixed(2);
+document.getElementById('backend-input').value = backendUrl() || '';
+updateBackendStatus();
 document.getElementById('aftertax-check').checked = afterTax;
 document.getElementById('add-exchange-field').style.display = document.getElementById('add-market').value === 'KR' ? '' : 'none';
 try {

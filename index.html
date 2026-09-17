@@ -1,11 +1,340 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <title>나의 첫 웹페이지</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>다국어 번역기 (실시간, 무료)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --surface-2: #f0f0ee; --border: #e0e0dc;
+    --text: #2a2a26; --text-muted: #6b6b64; --accent: #b5651d; --accent-hover: #9c5518;
+    --accent-text: #ffffff; --danger: #b5432f; --ok: #3f7d4f; --radius: 10px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1b19; --surface: #262523; --surface-2: #302f2c; --border: #3d3c38;
+      --text: #ece9e4; --text-muted: #a8a49c; --accent: #d98a4a; --accent-hover: #e69a5c; --accent-text: #1c1b19;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1b19; --surface: #262523; --surface-2: #302f2c; --border: #3d3c38;
+    --text: #ece9e4; --text-muted: #a8a49c; --accent: #d98a4a; --accent-hover: #e69a5c; --accent-text: #1c1b19;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background: var(--bg); color: var(--text); font-family: var(--font); padding: 24px 16px 60px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--text-muted); font-size: 0.9rem; margin: 0 0 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 20px; }
+  .card h2 { font-size: 1rem; margin: 0 0 12px; }
+  .lang-limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .lang-limits label { display:block; font-size:0.78rem; color: var(--text-muted); margin-bottom:4px; }
+  .lang-limits input { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); font-size:0.9rem; }
+  .rows-scroll { overflow-x:auto; }
+  table { width:100%; border-collapse: collapse; min-width: 640px; }
+  th, td { padding:8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; font-size:0.85rem; }
+  th { color: var(--text-muted); font-weight:600; font-size:0.78rem; }
+  textarea, input[type="text"] { width:100%; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); font-family:inherit; font-size:0.85rem; resize:vertical; min-height:36px; }
+  .charcount { font-size:0.72rem; color: var(--text-muted); margin-top:2px; }
+  .over { color: var(--danger); font-weight:600; }
+  .btnrow { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; align-items:center; }
+  button { font-family:inherit; font-size:0.85rem; padding:9px 16px; border-radius:8px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); cursor:pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight:600; }
+  button.primary:hover { background: var(--accent-hover); }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  .status { font-size:0.82rem; color: var(--text-muted); margin-top:10px; min-height:1.2em; display:flex; align-items:center; gap:8px; }
+  .status.err { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  .del { color: var(--danger); background: transparent; border: none; cursor: pointer; font-size: 1rem; padding: 2px 6px; }
+  .empty-note { color: var(--text-muted); font-size:0.85rem; }
+  .dot { width:8px; height:8px; border-radius:50%; background: var(--text-muted); display:inline-block; }
+  .dot.live { background: var(--ok); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  footer { text-align:center; color: var(--text-muted); font-size:0.75rem; margin-top: 30px; }
+</style>
 </head>
 <body>
-    <h1>안녕하세요!</h1>
-    <p>저의 첫 GitHub Pages 웹사이트입니다.</p>
+<div class="wrap">
+  <h1>🌐 다국어 번역기 (실시간 · 무료)</h1>
+  <p class="sub">입력을 멈추면 잠시 후 자동으로 영어 · 베트남어 · 중국어(간체) 번역이 갱신됩니다. 무료 공개 번역 엔진을 사용하므로 API 키나 비용이 전혀 들지 않습니다.</p>
+
+  <div class="card">
+    <h2>1. 언어별 최대 글자수 (비워두면 제한 없음)</h2>
+    <div class="lang-limits">
+      <div><label>English (영어)</label><input type="text" id="limit-en" inputmode="numeric" placeholder="예: 30"></div>
+      <div><label>Tiếng Việt (베트남어)</label><input type="text" id="limit-vi" inputmode="numeric" placeholder="예: 40"></div>
+      <div><label>简体中文 (중국어 간체)</label><input type="text" id="limit-zh" inputmode="numeric" placeholder="예: 20"></div>
+    </div>
+    <p class="empty-note" style="margin:0">※ 글자수를 초과하면 자연스럽게 줄이는 대신, 초과된 부분을 "…"으로 잘라 표시합니다 (무료 엔진이라 AI 재작성은 지원하지 않습니다).</p>
+  </div>
+
+  <div class="card">
+    <h2>2. 번역할 한국어 문장</h2>
+    <p class="empty-note" style="margin-top:-6px;margin-bottom:12px">엑셀에서 한국어 셀을 여러 개 복사해 붙여넣으면 자동으로 여러 행으로 나뉩니다. 입력을 멈추면 자동으로 번역이 갱신됩니다.</p>
+    <div class="rows-scroll">
+      <table id="rows-table">
+        <thead><tr><th style="width:36px">#</th><th>한국어 원문</th><th style="width:36px"></th></tr></thead>
+        <tbody id="rows-body"></tbody>
+      </table>
+    </div>
+    <div class="btnrow">
+      <button id="add-row">+ 행 추가</button>
+      <button id="add-rows-5">+ 5행 추가</button>
+      <button id="clear-rows">전체 지우기</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="btnrow" style="margin-top:0">
+      <button class="primary" id="translate-btn">지금 바로 번역</button>
+      <button id="download-btn" disabled>엑셀 다운로드 (.xlsx)</button>
+    </div>
+    <div class="status" id="status"><span class="dot" id="live-dot"></span><span id="status-text"></span></div>
+  </div>
+
+  <div class="card" id="result-card" style="display:none">
+    <h2>번역 결과</h2>
+    <div class="rows-scroll">
+      <table id="result-table">
+        <thead><tr><th>한국어</th><th>English</th><th>Tiếng Việt</th><th>简体中文</th></tr></thead>
+        <tbody id="result-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>Translation powered by MyMemory Translated API (무료, API 키 불필요, 토큰/비용 없음)</footer>
+</div>
+
+<script>
+const DEBOUNCE_MS = 900;
+
+let rowId = 0;
+let lastResults = null;
+let debounceTimer = null;
+let requestSeq = 0;
+
+const rowsBody = document.getElementById('rows-body');
+const statusText = document.getElementById('status-text');
+const liveDot = document.getElementById('live-dot');
+const downloadBtn = document.getElementById('download-btn');
+const translateBtn = document.getElementById('translate-btn');
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function addRow(text, atIndex) {
+  rowId += 1;
+  const tr = document.createElement('tr');
+  tr.dataset.id = rowId;
+  tr.innerHTML = `
+    <td>${rowId}</td>
+    <td><textarea class="ko-input" placeholder="번역할 한국어 문장을 입력하세요">${text ? escapeHtml(text) : ''}</textarea></td>
+    <td><button class="del" title="삭제">✕</button></td>
+  `;
+  tr.querySelector('.del').addEventListener('click', () => {
+    tr.remove();
+    if (rowsBody.children.length === 0) addRow();
+    scheduleTranslate();
+  });
+  if (atIndex === undefined || atIndex === null || atIndex >= rowsBody.children.length) {
+    rowsBody.appendChild(tr);
+  } else {
+    rowsBody.insertBefore(tr, rowsBody.children[atIndex]);
+  }
+  return tr;
+}
+
+rowsBody.addEventListener('paste', (e) => {
+  const target = e.target;
+  if (!target.classList || !target.classList.contains('ko-input')) return;
+  const pasted = (e.clipboardData || window.clipboardData).getData('text');
+  if (!pasted) return;
+  const lines = pasted.replace(/\r\n/g, '\n').split('\n')
+    .map(l => l.split('\t')[0].trim())
+    .filter(l => l.length > 0);
+  if (lines.length <= 1) return;
+  e.preventDefault();
+  const currentTr = target.closest('tr');
+  let insertIndex = Array.from(rowsBody.children).indexOf(currentTr) + 1;
+  target.value = lines[0];
+  for (let i = 1; i < lines.length; i++) {
+    addRow(lines[i], insertIndex);
+    insertIndex += 1;
+  }
+  scheduleTranslate();
+});
+
+rowsBody.addEventListener('input', (e) => {
+  if (e.target.classList && e.target.classList.contains('ko-input')) scheduleTranslate();
+});
+['limit-en', 'limit-vi', 'limit-zh'].forEach(id => {
+  document.getElementById(id).addEventListener('input', scheduleTranslate);
+});
+
+document.getElementById('add-row').addEventListener('click', () => addRow());
+document.getElementById('add-rows-5').addEventListener('click', () => { for (let i=0;i<5;i++) addRow(); });
+document.getElementById('clear-rows').addEventListener('click', () => { rowsBody.innerHTML = ''; addRow(); scheduleTranslate(); });
+
+addRow(); addRow(); addRow();
+
+function setStatus(msg, kind, live) {
+  statusText.textContent = msg || '';
+  document.getElementById('status').className = 'status' + (kind ? ' ' + kind : '');
+  liveDot.className = 'dot' + (live ? ' live' : '');
+}
+
+function getLimit(id) {
+  const v = document.getElementById(id).value.trim();
+  if (!v) return null;
+  const n = parseInt(v, 10);
+  return (Number.isFinite(n) && n > 0) ? n : null;
+}
+
+function getItems() {
+  return Array.from(document.querySelectorAll('.ko-input')).map(t => t.value.trim()).filter(v => v.length > 0);
+}
+
+function scheduleTranslate() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  const items = getItems();
+  if (items.length === 0) {
+    setStatus('', null, false);
+    downloadBtn.disabled = true;
+    document.getElementById('result-card').style.display = 'none';
+    return;
+  }
+  setStatus('입력 대기 중... (멈추면 자동 번역)', null, false);
+  debounceTimer = setTimeout(() => runTranslation(), DEBOUNCE_MS);
+}
+
+function fitToLimit(text, limit) {
+  if (!limit) return text;
+  const arr = [...text];
+  if (arr.length <= limit) return text;
+  if (limit <= 1) return arr.slice(0, limit).join('');
+  return arr.slice(0, limit - 1).join('') + '…';
+}
+
+async function translateOne(text, targetLangCode) {
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ko|${targetLangCode}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('번역 서버 응답 오류 (' + res.status + ')');
+  const data = await res.json();
+  if (data && data.responseData && typeof data.responseData.translatedText === 'string') {
+    return data.responseData.translatedText;
+  }
+  throw new Error('번역 결과를 받지 못했습니다.');
+}
+
+async function translateBatch(items, targetLangCode) {
+  const results = [];
+  for (const text of items) {
+    try {
+      results.push(await translateOne(text, targetLangCode));
+    } catch (e) {
+      results.push('(번역 실패)');
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return results;
+}
+
+async function runTranslation() {
+  const items = getItems();
+  if (items.length === 0) return;
+  const mySeq = ++requestSeq;
+
+  const limitEn = getLimit('limit-en');
+  const limitVi = getLimit('limit-vi');
+  const limitZh = getLimit('limit-zh');
+
+  translateBtn.disabled = true;
+  downloadBtn.disabled = true;
+  setStatus('번역하는 중...', null, true);
+
+  try {
+    const enRaw = await translateBatch(items, 'en');
+    if (mySeq !== requestSeq) return;
+    const viRaw = await translateBatch(items, 'vi');
+    if (mySeq !== requestSeq) return;
+    const zhRaw = await translateBatch(items, 'zh-CN');
+    if (mySeq !== requestSeq) return;
+
+    lastResults = items.map((ko, i) => ({
+      ko,
+      en: fitToLimit(enRaw[i], limitEn),
+      vi: fitToLimit(viRaw[i], limitVi),
+      zh: fitToLimit(zhRaw[i], limitZh),
+      limitEn, limitVi, limitZh
+    }));
+
+    renderResults(lastResults);
+    setStatus(`실시간 번역 완료 (${lastResults.length}개 문장)`, 'ok', false);
+    downloadBtn.disabled = false;
+  } catch (e) {
+    console.error(e);
+    setStatus('번역 중 오류: ' + (e.message || String(e)), 'err', false);
+  } finally {
+    if (mySeq === requestSeq) translateBtn.disabled = false;
+  }
+}
+
+translateBtn.addEventListener('click', () => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  runTranslation();
+});
+
+function charCountBadge(text, limit) {
+  const len = [...text].length;
+  const over = limit && len > limit;
+  return `<div>${escapeHtml(text)}</div><div class="charcount${over ? ' over' : ''}">${len}자${limit ? ' / 최대 ' + limit + '자' : ''}${over ? ' 초과' : ''}</div>`;
+}
+
+function renderResults(results) {
+  const card = document.getElementById('result-card');
+  const body = document.getElementById('result-body');
+  body.innerHTML = '';
+  results.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(r.ko)}</td>
+      <td>${charCountBadge(r.en, r.limitEn)}</td>
+      <td>${charCountBadge(r.vi, r.limitVi)}</td>
+      <td>${charCountBadge(r.zh, r.limitZh)}</td>
+    `;
+    body.appendChild(tr);
+  });
+  card.style.display = '';
+}
+
+downloadBtn.addEventListener('click', () => {
+  if (!lastResults || lastResults.length === 0) return;
+  try {
+    const wb = XLSX.utils.book_new();
+    const koSheet = XLSX.utils.json_to_sheet(lastResults.map((r, i) => ({ '번호': i + 1, '한국어 원문': r.ko })));
+    XLSX.utils.book_append_sheet(wb, koSheet, '한국어');
+    const enSheet = XLSX.utils.json_to_sheet(lastResults.map((r, i) => ({
+      '번호': i + 1, '한국어 원문': r.ko, 'English': r.en, '목표 글자수': r.limitEn || '', '실제 글자수': [...r.en].length
+    })));
+    XLSX.utils.book_append_sheet(wb, enSheet, 'English');
+    const viSheet = XLSX.utils.json_to_sheet(lastResults.map((r, i) => ({
+      '번호': i + 1, '한국어 원문': r.ko, 'Tiếng Việt': r.vi, '목표 글자수': r.limitVi || '', '실제 글자수': [...r.vi].length
+    })));
+    XLSX.utils.book_append_sheet(wb, viSheet, 'Tiếng Việt');
+    const zhSheet = XLSX.utils.json_to_sheet(lastResults.map((r, i) => ({
+      '번호': i + 1, '한국어 원문': r.ko, '简体中文': r.zh, '목표 글자수': r.limitZh || '', '실제 글자수': [...r.zh].length
+    })));
+    XLSX.utils.book_append_sheet(wb, zhSheet, '简体中文');
+    XLSX.writeFile(wb, 'translations.xlsx');
+    setStatus('엑셀 파일을 다운로드했습니다.', 'ok', false);
+  } catch (e) {
+    console.error(e);
+    setStatus('엑셀 생성 중 오류: ' + (e.message || String(e)), 'err', false);
+  }
+});
+</script>
 </body>
 </html>

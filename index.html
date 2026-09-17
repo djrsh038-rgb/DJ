@@ -7,40 +7,45 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
-    --bg: #f7f7f5; --surface: #ffffff; --surface-2: #f0f0ee; --border: #e0e0dc;
-    --text: #2a2a26; --text-muted: #6b6b64; --accent: #b5651d; --accent-hover: #9c5518;
-    --accent-text: #ffffff; --danger: #b5432f; --ok: #3f7d4f; --radius: 10px;
+    --bg: #f8fafc; --surface: #ffffff; --surface-2: #f1f5f9; --border: #e2e8f0;
+    --text: #0f172a; --text-muted: #64748b; --accent: #2563eb; --accent-hover: #1d4fd1;
+    --accent-text: #ffffff; --danger: #dc2626; --ok: #16a34a; --radius: 14px;
+    --header-bg: #1e3a8a; --header-text: #ffffff; --header-muted: #bfd1f5;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Malgun Gothic", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #1c1b19; --surface: #262523; --surface-2: #302f2c; --border: #3d3c38;
-      --text: #ece9e4; --text-muted: #a8a49c; --accent: #d98a4a; --accent-hover: #e69a5c; --accent-text: #1c1b19;
+      --bg: #0b1220; --surface: #131c2e; --surface-2: #1a2438; --border: #2a3552;
+      --text: #e6ebf5; --text-muted: #93a2c0; --accent: #5b8def; --accent-hover: #7ba1f2; --accent-text: #0b1220;
+      --header-bg: #14265c; --header-muted: #a9bdec;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #1c1b19; --surface: #262523; --surface-2: #302f2c; --border: #3d3c38;
-    --text: #ece9e4; --text-muted: #a8a49c; --accent: #d98a4a; --accent-hover: #e69a5c; --accent-text: #1c1b19;
+    --bg: #0b1220; --surface: #131c2e; --surface-2: #1a2438; --border: #2a3552;
+    --text: #e6ebf5; --text-muted: #93a2c0; --accent: #5b8def; --accent-hover: #7ba1f2; --accent-text: #0b1220;
+    --header-bg: #14265c; --header-muted: #a9bdec;
   }
   * { box-sizing: border-box; }
-  body { margin:0; background: var(--bg); color: var(--text); font-family: var(--font); padding: 24px 16px 60px; }
-  .wrap { max-width: 980px; margin: 0 auto; }
-  h1 { font-size: 1.4rem; margin: 0 0 4px; }
-  .sub { color: var(--text-muted); font-size: 0.9rem; margin: 0 0 20px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 20px; }
-  .card h2 { font-size: 1rem; margin: 0 0 12px; }
-  .lang-limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  body { margin:0; background: var(--bg); color: var(--text); font-family: var(--font); padding: 0 0 60px; }
+  .header-bar { background: var(--header-bg); padding: 32px 16px; }
+  .header-inner { max-width: 980px; margin: 0 auto; }
+  .header-inner h1 { color: var(--header-text); font-size: 1.5rem; margin: 0 0 6px; font-weight:700; }
+  .header-inner .sub { color: var(--header-muted); font-size: 0.85rem; margin: 0; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
+  .card h2 { font-size: 0.95rem; margin: 0 0 14px; font-weight:700; color: var(--accent); }
+  .lang-limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .lang-limits label { display:block; font-size:0.78rem; color: var(--text-muted); margin-bottom:4px; }
-  .lang-limits input { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); font-size:0.9rem; }
+  .lang-limits input { width:100%; padding:9px 11px; border-radius:10px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); font-size:0.9rem; }
   .rows-scroll { overflow-x:auto; }
   table { width:100%; border-collapse: collapse; min-width: 640px; }
   th, td { padding:8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; font-size:0.85rem; }
   th { color: var(--text-muted); font-weight:600; font-size:0.78rem; }
-  textarea, input[type="text"] { width:100%; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); font-family:inherit; font-size:0.85rem; resize:vertical; min-height:36px; }
+  textarea, input[type="text"] { width:100%; padding:6px 8px; border-radius:8px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); font-family:inherit; font-size:0.85rem; resize:vertical; min-height:36px; }
   .charcount { font-size:0.72rem; color: var(--text-muted); margin-top:2px; }
   .over { color: var(--danger); font-weight:600; }
   .btnrow { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; align-items:center; }
-  button { font-family:inherit; font-size:0.85rem; padding:9px 16px; border-radius:8px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); cursor:pointer; }
+  button { font-family:inherit; font-size:0.85rem; padding:10px 20px; border-radius:10px; border:1px solid var(--border); background: var(--surface); color: var(--text); cursor:pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight:600; }
   button.primary:hover { background: var(--accent-hover); }
   button:disabled { opacity:0.5; cursor:not-allowed; }
@@ -56,10 +61,13 @@
 </style>
 </head>
 <body>
+<div class="header-bar">
+  <div class="header-inner">
+    <h1>다국어 번역기</h1>
+    <p class="sub">실시간 자동 번역 · English · Tiếng Việt · 简体中文 · API 키 없이 무료로 이용하세요</p>
+  </div>
+</div>
 <div class="wrap">
-  <h1>🌐 다국어 번역기 (실시간 · 무료)</h1>
-  <p class="sub">입력을 멈추면 잠시 후 자동으로 영어 · 베트남어 · 중국어(간체) 번역이 갱신됩니다. 무료 공개 번역 엔진을 사용하므로 API 키나 비용이 전혀 들지 않습니다.</p>
-
   <div class="card">
     <h2>1. 언어별 최대 글자수 (비워두면 제한 없음)</h2>
     <div class="lang-limits">

@@ -45,6 +45,14 @@
   button.small { padding:5px 9px; font-size:0.76rem; }
   button.icon { padding:4px 8px; font-size:0.8rem; }
   button.link { background:transparent; border:none; color:var(--accent); padding:2px 4px; text-decoration:underline; }
+  .search-wrap { position:relative; }
+  .search-wrap input { width:100%; min-width:260px; }
+  .search-dropdown { position:absolute; top:100%; left:0; right:0; background:var(--surface); border:1px solid var(--border); border-radius:8px; margin-top:4px; max-height:260px; overflow-y:auto; z-index:20; box-shadow:0 6px 18px rgba(0,0,0,0.14); }
+  .search-item { padding:8px 10px; cursor:pointer; font-size:0.82rem; display:flex; justify-content:space-between; align-items:center; gap:10px; border-bottom:1px solid var(--border); }
+  .search-item:last-child { border-bottom:none; }
+  .search-item:hover, .search-item.active { background: var(--surface-2); }
+  .search-item .n { font-weight:600; }
+  .search-item .t { color:var(--text-muted); font-size:0.72rem; white-space:nowrap; }
   .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
   .chip { border:1px dashed var(--border); background:transparent; border-radius:999px; padding:5px 12px; font-size:0.76rem; color:var(--text-muted); cursor:pointer; }
   .chip:hover { border-color: var(--accent); color: var(--accent); }
@@ -181,12 +189,20 @@
       </label>
     </div>
     <div class="status" id="global-status"></div>
-    <p class="empty-note" style="margin:10px 0 0">시세는 Yahoo Finance, 환율은 Frankfurter(ECB 기준) 공개 엔드포인트로 자동 조회를 시도합니다. 재무지표도 종목 추가 시 자동으로 채워집니다 — 국내는 Naver Finance에서 PER·PBR·주당배당금을, 해외는 Yahoo Finance에서 PER·PBR·배당성향·부채비율·(가능한 경우) 총자산을 가져옵니다. 국내 종목의 배당성향·부채비율·총자산은 무료 자동조회 소스가 없어 직접 입력이 필요합니다. 브라우저 정책이나 API 상태에 따라 조회가 실패할 수 있으며, 그런 경우 각 종목의 "상세" 항목에서 직접 값을 입력하면 됩니다.</p>
+    <p class="empty-note" style="margin:10px 0 0">종목 추가 카드의 검색창에 회사명/티커를 입력하면 Yahoo Finance 검색 엔드포인트로 국내·해외 종목을 함께 찾아주고, 선택하는 즉시 시세·PER·PBR·주당배당금을 조회해 자동으로 취합·입력합니다. 재무지표는 국내는 Naver Finance(PER·PBR·주당배당금), 해외는 Yahoo Finance(PER·PBR·배당성향·부채비율·가능한 경우 총자산)에서 가져옵니다. 국내 종목의 배당성향·부채비율·총자산은 무료 자동조회 소스가 없어 직접 입력이 필요합니다. 브라우저 정책이나 API 상태에 따라 조회가 실패할 수 있으며, 그런 경우 검색 대신 필드에 직접 입력하면 됩니다.</p>
   </div>
 
   <div class="card">
     <h2>종목 추가</h2>
     <div class="row">
+      <div class="field search-wrap" style="min-width:220px">
+        <label>종목 검색 (회사명 또는 티커)</label>
+        <input type="text" id="search-input" placeholder="예: 삼성전자, Apple, AAPL..." autocomplete="off">
+        <div class="search-dropdown" id="search-dropdown" style="display:none"></div>
+      </div>
+    </div>
+    <p class="empty-note" style="margin:8px 0 0">검색 결과를 클릭하면 아래 필드가 자동으로 채워지고, 시세·PER·PBR·주당배당금을 바로 조회해 미리보여줍니다. 검색이 안 되면 아래 필드에 직접 입력해도 됩니다.</p>
+    <div class="row" style="margin-top:12px">
       <div class="field">
         <label>시장</label>
         <select id="add-market">
@@ -209,6 +225,7 @@
         <label>종목명</label>
         <input type="text" class="name" id="add-name" placeholder="예: 삼성전자">
       </div>
+      <button class="small" id="preview-btn" title="위 필드 기준으로 시세·재무지표 미리 조회">데이터 조회</button>
       <div class="field">
         <label>보유 수량</label>
         <input type="number" id="add-shares" min="0" step="1" placeholder="0">
@@ -221,6 +238,7 @@
     </div>
     <div class="chips" id="preset-chips"></div>
     <div class="status" id="add-status"></div>
+    <div class="status" id="preview-status"></div>
   </div>
 
   <div class="card">
@@ -439,6 +457,28 @@ function applyFundamentals(h, data) {
 
 async function fetchFundamentals(h) {
   return h.market === 'KR' ? fetchNaverFundamentals(h) : fetchYahooFundamentals(h);
+}
+
+// 종목 검색: Yahoo Finance 공개 검색 엔드포인트 (국내·해외 종목을 한 번에 검색)
+async function searchSymbols(q) {
+  const url = 'https://query1.finance.yahoo.com/v1/finance/search?q=' + encodeURIComponent(q) + '&quotesCount=8&newsCount=0';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  const quotes = (data && data.quotes) || [];
+  return quotes
+    .filter(q => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF'))
+    .map(q => {
+      const symbol = q.symbol;
+      let market = 'US', exchange = null, ticker = symbol;
+      if (symbol.endsWith('.KS')) { market = 'KR'; exchange = 'KS'; ticker = symbol.slice(0, -3); }
+      else if (symbol.endsWith('.KQ')) { market = 'KR'; exchange = 'KQ'; ticker = symbol.slice(0, -3); }
+      return {
+        symbol, market, exchange, ticker,
+        name: q.shortname || q.longname || symbol,
+        typeDisp: q.typeDisp || '', exchDisp: q.exchDisp || ''
+      };
+    });
 }
 
 async function refreshOneFull(id) {
@@ -824,6 +864,96 @@ document.getElementById('add-market').addEventListener('change', (e) => {
   document.getElementById('add-exchange-field').style.display = e.target.value === 'KR' ? '' : 'none';
 });
 
+/* ---------- 종목 검색 & 미리보기 ---------- */
+let searchDebounce = null;
+let searchSeq = 0;
+const searchInput = document.getElementById('search-input');
+const searchDropdown = document.getElementById('search-dropdown');
+
+function setPreviewStatus(msg, isErr) {
+  const el = document.getElementById('preview-status');
+  el.textContent = msg;
+  el.className = 'status' + (isErr ? ' err' : '');
+}
+
+function hideSearchDropdown() {
+  searchDropdown.style.display = 'none';
+  searchDropdown.innerHTML = '';
+}
+
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.trim();
+  if (searchDebounce) clearTimeout(searchDebounce);
+  if (q.length < 1) { hideSearchDropdown(); return; }
+  searchDebounce = setTimeout(async () => {
+    const mySeq = ++searchSeq;
+    try {
+      const results = await searchSymbols(q);
+      if (mySeq !== searchSeq) return;
+      if (results.length === 0) {
+        searchDropdown.innerHTML = '<div class="search-item empty-note">검색 결과 없음 - 아래 필드에 직접 입력하세요</div>';
+        searchDropdown.style.display = '';
+        return;
+      }
+      searchDropdown.innerHTML = results.map((r, i) =>
+        '<div class="search-item" data-idx="' + i + '"><span class="n">' + escapeHtml(r.name) + '</span><span class="t">' + escapeHtml(r.symbol) + ' · ' + (r.market === 'KR' ? '국내' : '해외') + (r.typeDisp ? ' · ' + escapeHtml(r.typeDisp) : '') + '</span></div>'
+      ).join('');
+      searchDropdown._results = results;
+      searchDropdown.style.display = '';
+    } catch (e) {
+      if (mySeq !== searchSeq) return;
+      searchDropdown.innerHTML = '<div class="search-item empty-note">검색 자동조회 실패 - 아래 필드에 직접 입력하세요</div>';
+      searchDropdown.style.display = '';
+    }
+  }, 400);
+});
+
+searchDropdown.addEventListener('click', (e) => {
+  const item = e.target.closest('.search-item');
+  if (!item || item.dataset.idx == null) return;
+  const r = searchDropdown._results[parseInt(item.dataset.idx, 10)];
+  if (!r) return;
+  document.getElementById('add-market').value = r.market;
+  document.getElementById('add-exchange-field').style.display = r.market === 'KR' ? '' : 'none';
+  if (r.exchange) document.getElementById('add-exchange').value = r.exchange;
+  document.getElementById('add-ticker').value = r.ticker;
+  document.getElementById('add-name').value = r.name;
+  searchInput.value = r.name;
+  hideSearchDropdown();
+  previewAndFill();
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-wrap')) hideSearchDropdown();
+});
+
+async function previewAndFill() {
+  const market = document.getElementById('add-market').value;
+  const exchange = document.getElementById('add-exchange').value;
+  const ticker = document.getElementById('add-ticker').value.trim();
+  if (!ticker) { setPreviewStatus('티커/종목코드를 먼저 입력하거나 검색해주세요.', true); return; }
+  const tmp = { market, exchange, ticker };
+  const currency = market === 'US' ? 'USD' : 'KRW';
+  setPreviewStatus('시세·재무지표 조회 중...', false);
+  let priceStr = '조회 실패', perStr = '—', pbrStr = '—', dpsFilled = false;
+  try {
+    const p = await fetchYahooPrice(tmp);
+    priceStr = fmtMoney(p, currency);
+  } catch (e) {}
+  try {
+    const data = await fetchFundamentals(tmp);
+    if (data.per != null) perStr = data.per.toFixed(2);
+    if (data.pbr != null) pbrStr = data.pbr.toFixed(2);
+    if (data.dps != null) {
+      document.getElementById('add-dps').value = data.dps;
+      dpsFilled = true;
+    }
+  } catch (e) {}
+  setPreviewStatus('조회 결과 — 현재가 ' + priceStr + ' · PER ' + perStr + ' · PBR ' + pbrStr + (dpsFilled ? ' · 주당배당금 자동 입력됨(추가 시 확인)' : ' · 주당배당금은 직접 입력 필요'), false);
+}
+
+document.getElementById('preview-btn').addEventListener('click', previewAndFill);
+
 document.getElementById('preset-chips').innerHTML = [
   { market: 'KR', exchange: 'KS', ticker: '005930', name: '삼성전자' },
   { market: 'KR', exchange: 'KS', ticker: '033780', name: 'KT&G' },
@@ -841,6 +971,8 @@ document.getElementById('preset-chips').addEventListener('click', (e) => {
   if (p.exchange) document.getElementById('add-exchange').value = p.exchange;
   document.getElementById('add-ticker').value = p.ticker;
   document.getElementById('add-name').value = p.name;
+  document.getElementById('search-input').value = p.name;
+  previewAndFill();
 });
 
 document.getElementById('add-btn').addEventListener('click', () => {
@@ -862,6 +994,8 @@ document.getElementById('add-btn').addEventListener('click', () => {
   document.getElementById('add-name').value = '';
   document.getElementById('add-shares').value = '';
   document.getElementById('add-dps').value = '';
+  document.getElementById('search-input').value = '';
+  setPreviewStatus('', false);
   refreshOneFull(h.id);
 });
 

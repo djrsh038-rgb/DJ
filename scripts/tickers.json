@@ -1,0 +1,7 @@
+[
+  { "market": "KR", "exchange": "KS", "ticker": "005930", "name": "삼성전자" },
+  { "market": "KR", "exchange": "KS", "ticker": "033780", "name": "KT&G" },
+  { "market": "US", "ticker": "AAPL", "name": "Apple" },
+  { "market": "US", "ticker": "SCHD", "name": "Schwab US Dividend Equity ETF" },
+  { "market": "US", "ticker": "JEPI", "name": "JPMorgan Equity Premium Income ETF" }
+]

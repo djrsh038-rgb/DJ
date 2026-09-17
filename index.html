@@ -81,6 +81,8 @@
   .price-cell input { width:96px; text-align:right; padding:5px 6px; border-radius:6px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); font-size:0.82rem; font-variant-numeric: tabular-nums; }
   .price-time { font-size:0.66rem; color: var(--text-muted); }
   .price-err { font-size:0.66rem; color: var(--danger); }
+  .ext-link { font-size:0.66rem; color: var(--accent); text-decoration:underline; }
+  .ext-link:hover { color: var(--accent-hover); }
   .cell-input { width:78px; text-align:right; padding:5px 6px; border-radius:6px; border:1px solid var(--border); background: var(--surface-2); color: var(--text); font-size:0.82rem; font-variant-numeric: tabular-nums; }
   .cell-input.wide { width:120px; }
   .detail-row td { background: var(--surface-2); }
@@ -363,6 +365,19 @@ function fmtMoney(n, currency, digits) {
   if (n === null || n === undefined || !isFinite(n)) return '—';
   const sym = currency === 'USD' ? '$' : '₩';
   return sym + fmtNum(n, digits == null ? 0 : digits);
+}
+function googleSearchUrl(q) {
+  return 'https://www.google.com/search?q=' + encodeURIComponent(q);
+}
+function naverSearchUrl(q) {
+  return 'https://search.naver.com/search.naver?query=' + encodeURIComponent(q);
+}
+function financeSourceUrl(h) {
+  if (h.market === 'KR') return 'https://finance.naver.com/item/main.naver?code=' + encodeURIComponent(h.ticker.trim());
+  return 'https://finance.yahoo.com/quote/' + encodeURIComponent(h.ticker.trim().toUpperCase()) + '/key-statistics';
+}
+function externalLink(url, label) {
+  return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" class="ext-link">' + escapeHtml(label) + '</a>';
 }
 function compactKRW(v) {
   if (!isFinite(v)) return '0';
@@ -653,6 +668,7 @@ function renderHoldingsTable() {
         '<input type="number" class="cell-input" step="0.01" data-field="price" data-id="' + h.id + '" value="' + (h.price || 0) + '">' +
         '<span class="price-time">' + (h.priceUpdatedAt ? new Date(h.priceUpdatedAt).toLocaleTimeString('ko-KR') + (h.priceSource === 'auto' ? ' 자동' : ' 수동') : '미조회') + '</span>' +
         (h.priceError ? '<span class="price-err">' + escapeHtml(h.priceError) + '</span>' : '') +
+        (h.priceError ? externalLink(h.market === 'KR' ? naverSearchUrl((h.name || h.ticker) + ' 주가') : googleSearchUrl((h.name || h.ticker) + ' stock price'), '🔍 검색해서 찾기') : '') +
         '<button class="small icon" data-act="refresh-price" data-id="' + h.id + '" title="시세·재무지표 새로고침">↻</button>' +
       '</div></td>' +
       '<td><input type="number" class="cell-input" step="1" min="0" data-field="shares" data-id="' + h.id + '" value="' + (h.shares || 0) + '"></td>' +
@@ -672,12 +688,17 @@ function renderHoldingsTable() {
       const fundStatus = h.fundUpdatedAt
         ? ('재무지표 마지막 자동조회: ' + new Date(h.fundUpdatedAt).toLocaleTimeString('ko-KR'))
         : '재무지표 아직 자동조회 안 됨';
-      const fundNote = h.market === 'KR'
+      const fundNote = (h.market === 'KR'
         ? 'PER·PBR·주당배당금은 Naver Finance에서 자동조회됩니다. 배당성향·부채비율·총자산은 자동조회 소스가 없어 직접 입력이 필요합니다.'
-        : 'PER·PBR·배당성향·부채비율은 Yahoo Finance에서 자동조회됩니다. 총자산은 재무제표 모듈이 제공될 때만 채워지며, 없으면 직접 입력해주세요.';
+        : 'PER·PBR·배당성향·부채비율은 Yahoo Finance에서 자동조회됩니다. 총자산은 재무제표 모듈이 제공될 때만 채워지며, 없으면 직접 입력해주세요.')
+        + ' 자동조회가 실패하거나 값이 비어있으면 위 링크로 원본 페이지를 열거나 검색해서 직접 입력하세요.';
+      const fundSearchQuery = (h.name || h.ticker) + ' PER PBR 배당성향 부채비율';
+      const fundFallbackLink = h.market === 'KR' ? naverSearchUrl(fundSearchQuery) : googleSearchUrl(fundSearchQuery);
       dtr.innerHTML = '<td colspan="9"><div class="row" style="margin-bottom:6px; align-items:center">' +
         '<span class="tticker">' + fundStatus + (h.fundError ? ' · <span class="price-err">' + escapeHtml(h.fundError) + '</span>' : '') + '</span>' +
         '<button class="small icon" data-act="refresh-price" data-id="' + h.id + '" title="시세·재무지표 새로고침">재무지표 새로고침</button>' +
+        externalLink(financeSourceUrl(h), (h.market === 'KR' ? 'Naver Finance' : 'Yahoo Finance') + '에서 원본 보기 ↗') +
+        (h.fundError ? externalLink(fundFallbackLink, '🔍 ' + (h.market === 'KR' ? 'Naver' : 'Google') + '에서 검색해서 찾기') : '') +
         '</div>' +
         '<p class="empty-note" style="margin:0 0 8px">' + fundNote + '</p>' +
         '<div class="detail-grid">' +

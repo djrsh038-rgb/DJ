@@ -198,7 +198,7 @@
       <span class="empty-note" id="backend-status" style="align-self:center"></span>
     </div>
     <div class="status" id="global-status"></div>
-    <p class="empty-note" style="margin:10px 0 0">종목 추가 카드의 검색창에 회사명/티커를 입력하면 국내·해외 종목을 함께 찾아주고, 선택하는 즉시 시세·PER·PBR·주당배당금을 조회해 자동으로 취합·입력합니다. 기본값은 브라우저에서 Yahoo Finance/Naver Finance 공개 엔드포인트를 직접 호출하는 방식(무료, 서버 없음)이라 브라우저 정책에 따라 가끔 조회가 실패할 수 있습니다. 위 "백엔드 서버 URL"에 직접 배포한 Cloudflare Worker 주소를 입력하면 같은 무료 엔드포인트를 서버에서 대신 호출해 CORS 문제 없이 더 안정적으로 자동조회됩니다(배포 방법은 README 참고). 국내 종목의 배당성향·부채비율·총자산은 어느 경우든 무료 자동조회 소스가 없어 직접 입력이 필요합니다.</p>
+    <p class="empty-note" style="margin:10px 0 0">종목 추가 카드의 검색창에 회사명/티커를 입력하면 국내·해외 종목을 함께 찾아주고, 선택하는 즉시 시세·재무지표를 조회해 자동으로 취합·입력합니다. 조회는 3단계로 시도됩니다: ① <code>data.json</code> 사전 캐시(감시 목록에 등록된 종목이면 GitHub Actions가 yfinance로 미리 갱신해둔 값을 same-origin으로 즉시 사용, 배당성향·부채비율까지 포함 가능) → ② 위 "백엔드 서버 URL"에 배포한 Cloudflare Worker(설정한 경우) → ③ 브라우저에서 Yahoo Finance/Naver Finance 공개 엔드포인트 직접 호출(기본값, 무료·서버 없음이지만 가끔 실패 가능). 각 단계는 자세한 배포 방법이 README에 있습니다.</p>
   </div>
 
   <div class="card">
@@ -353,6 +353,25 @@ function backendUrl() {
 function saveBackendUrl(v) { try { localStorage.setItem(LS_BACKEND_KEY, (v || '').trim()); } catch (e) {} }
 function backendQuery(h) {
   return 'market=' + h.market + '&ticker=' + encodeURIComponent(h.ticker.trim()) + (h.market === 'KR' ? '&exchange=' + (h.exchange || 'KS') : '');
+}
+
+// data.json: GitHub Actions가 yfinance로 주기적으로 갱신해 같은 저장소에 커밋해두는
+// 정적 캐시. 같은 출처(same-origin)라 CORS 문제가 전혀 없고, 감시 목록(scripts/tickers.json)에
+// 있는 종목이라면 네트워크 호출 없이 즉시 값을 쓸 수 있다. 없으면 조용히 다음 단계(백엔드/직접호출)로 넘어간다.
+let staticData = null;
+let staticDataPromise = null;
+function loadStaticData() {
+  if (!staticDataPromise) {
+    staticDataPromise = fetch('./data.json', { cache: 'no-store' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { staticData = data; return data; })
+      .catch(() => { staticData = null; return null; });
+  }
+  return staticDataPromise;
+}
+function getStaticQuote(h) {
+  if (!staticData) return null;
+  return staticData[yahooSymbol(h)] || null;
 }
 
 function newHolding(partial) {
@@ -547,6 +566,17 @@ async function searchSymbols(q) {
 async function refreshOneFull(id) {
   const h = holdings.find(x => x.id === id);
   if (!h || !h.ticker) return;
+  await loadStaticData();
+  const staticEntry = getStaticQuote(h);
+  if (staticEntry) {
+    if (typeof staticEntry.price === 'number') { h.price = staticEntry.price; h.priceUpdatedAt = staticEntry.updatedAt || new Date().toISOString(); h.priceSource = 'static'; h.priceError = null; }
+    applyFundamentals(h, staticEntry);
+    h.fundUpdatedAt = staticEntry.updatedAt || new Date().toISOString();
+    h.fundError = null;
+    saveHoldings();
+    render();
+    return;
+  }
   if (backendUrl()) {
     try {
       const data = await fetchQuoteBackend(h);
@@ -582,8 +612,14 @@ async function refreshOneFull(id) {
 async function refreshAllPrices() {
   if (holdings.length === 0) return;
   setGlobalStatus('전체 시세 조회 중...', false);
+  await loadStaticData();
   for (const h of holdings) {
     if (!h.ticker) continue;
+    const staticEntry = getStaticQuote(h);
+    if (staticEntry && typeof staticEntry.price === 'number') {
+      h.price = staticEntry.price; h.priceUpdatedAt = staticEntry.updatedAt || new Date().toISOString(); h.priceSource = 'static'; h.priceError = null;
+      continue;
+    }
     try {
       const p = await fetchYahooPrice(h);
       h.price = p; h.priceUpdatedAt = new Date().toISOString(); h.priceSource = 'auto'; h.priceError = null;
@@ -600,9 +636,18 @@ async function refreshAllPrices() {
 async function refreshAllFull() {
   if (holdings.length === 0) return;
   setGlobalStatus('전체 시세·재무지표 조회 중...', false);
+  await loadStaticData();
   const base = backendUrl();
   for (const h of holdings) {
     if (!h.ticker) continue;
+    const staticEntry = getStaticQuote(h);
+    if (staticEntry) {
+      if (typeof staticEntry.price === 'number') { h.price = staticEntry.price; h.priceUpdatedAt = staticEntry.updatedAt || new Date().toISOString(); h.priceSource = 'static'; h.priceError = null; }
+      applyFundamentals(h, staticEntry);
+      h.fundUpdatedAt = staticEntry.updatedAt || new Date().toISOString();
+      h.fundError = null;
+      continue;
+    }
     if (base) {
       try {
         const data = await fetchQuoteBackend(h);
@@ -746,7 +791,7 @@ function renderHoldingsTable() {
       '</td>' +
       '<td><div class="price-cell">' +
         '<input type="number" class="cell-input" step="0.01" data-field="price" data-id="' + h.id + '" value="' + (h.price || 0) + '">' +
-        '<span class="price-time">' + (h.priceUpdatedAt ? new Date(h.priceUpdatedAt).toLocaleTimeString('ko-KR') + (h.priceSource === 'auto' ? ' 자동' : ' 수동') : '미조회') + '</span>' +
+        '<span class="price-time">' + (h.priceUpdatedAt ? new Date(h.priceUpdatedAt).toLocaleTimeString('ko-KR') + (h.priceSource === 'static' ? ' 사전캐시' : h.priceSource === 'auto' ? ' 자동' : ' 수동') : '미조회') + '</span>' +
         (h.priceError ? '<span class="price-err">' + escapeHtml(h.priceError) + '</span>' : '') +
         (h.priceError ? externalLink(h.market === 'KR' ? naverSearchUrl((h.name || h.ticker) + ' 주가') : googleSearchUrl((h.name || h.ticker) + ' stock price'), '🔍 검색해서 찾기') : '') +
         '<button class="small icon" data-act="refresh-price" data-id="' + h.id + '" title="시세·재무지표 새로고침">↻</button>' +
@@ -768,10 +813,12 @@ function renderHoldingsTable() {
       const fundStatus = h.fundUpdatedAt
         ? ('재무지표 마지막 자동조회: ' + new Date(h.fundUpdatedAt).toLocaleTimeString('ko-KR'))
         : '재무지표 아직 자동조회 안 됨';
-      const fundNote = (h.market === 'KR'
-        ? 'PER·PBR·주당배당금은 Naver Finance에서 자동조회됩니다. 배당성향·부채비율·총자산은 자동조회 소스가 없어 직접 입력이 필요합니다.'
-        : 'PER·PBR·배당성향·부채비율은 Yahoo Finance에서 자동조회됩니다. 총자산은 재무제표 모듈이 제공될 때만 채워지며, 없으면 직접 입력해주세요.')
-        + ' 자동조회가 실패하거나 값이 비어있으면 위 링크로 원본 페이지를 열거나 검색해서 직접 입력하세요.';
+      const fundNote = getStaticQuote(h)
+        ? 'data.json 사전 캐시(GitHub Actions가 yfinance로 주기적으로 갱신)에서 가져온 값입니다. 배당성향·부채비율·총자산까지 채워질 수 있습니다.'
+        : (h.market === 'KR'
+          ? 'PER·PBR·주당배당금은 Naver Finance에서 자동조회됩니다. 배당성향·부채비율·총자산은 이 방식으로는 자동조회 소스가 없어 직접 입력이 필요합니다(감시 목록에 등록하면 data.json으로 채울 수 있음 - README 참고).'
+          : 'PER·PBR·배당성향·부채비율은 Yahoo Finance에서 자동조회됩니다. 총자산은 재무제표 모듈이 제공될 때만 채워지며, 없으면 직접 입력해주세요.')
+          + ' 자동조회가 실패하거나 값이 비어있으면 위 링크로 원본 페이지를 열거나 검색해서 직접 입력하세요.';
       const fundSearchQuery = (h.name || h.ticker) + ' PER PBR 배당성향 부채비율';
       const fundFallbackLink = h.market === 'KR' ? naverSearchUrl(fundSearchQuery) : googleSearchUrl(fundSearchQuery);
       dtr.innerHTML = '<td colspan="9"><div class="row" style="margin-bottom:6px; align-items:center">' +
@@ -1037,6 +1084,16 @@ async function previewAndFill() {
   const currency = market === 'US' ? 'USD' : 'KRW';
   setPreviewStatus('시세·재무지표 조회 중...', false);
   let priceStr = '조회 실패', perStr = '—', pbrStr = '—', dpsFilled = false;
+  await loadStaticData();
+  const staticEntry = getStaticQuote(tmp);
+  if (staticEntry) {
+    if (typeof staticEntry.price === 'number') priceStr = fmtMoney(staticEntry.price, currency);
+    if (staticEntry.per != null) perStr = staticEntry.per.toFixed(2);
+    if (staticEntry.pbr != null) pbrStr = staticEntry.pbr.toFixed(2);
+    if (staticEntry.dps != null) { document.getElementById('add-dps').value = staticEntry.dps; dpsFilled = true; }
+    setPreviewStatus('조회 결과(사전 캐시) — 현재가 ' + priceStr + ' · PER ' + perStr + ' · PBR ' + pbrStr + (dpsFilled ? ' · 주당배당금 자동 입력됨(추가 시 확인)' : ' · 주당배당금은 직접 입력 필요'), false);
+    return;
+  }
   if (backendUrl()) {
     try {
       const data = await fetchQuoteBackend(tmp);
